@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>软考程序员 · 5天冲刺</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand" onclick="go('home')">软考程序员 <span>5天冲刺</span></div>
+    <nav class="nav">
+      <button data-tab="home" onclick="go('home')">今日</button>
+      <button data-tab="plan" onclick="go('plan')">5天计划</button>
+      <button data-tab="learn" onclick="go('learn')">知识卡</button>
+      <button data-tab="quiz" onclick="go('quiz')">刷题</button>
+      <button data-tab="mock" onclick="go('mock')">模考</button>
+      <button data-tab="wrong" onclick="go('wrong')">错题本</button>
+    </nav>
+    <div class="stats" id="topStats"></div>
+  </header>
+  <main id="main"></main>
+</div>
+<script src="data/m01-cs.js"></script>
+<script src="data/m02-media-std.js"></script>
+<script src="data/m03-os.js"></script>
+<script src="data/m04-lang.js"></script>
+<script src="data/m05-ds.js"></script>
+<script src="data/m06-se-oo-db.js"></script>
+<script src="data/m07-net.js"></script>
+<script src="data/m08-c.js"></script>
+<script src="data/m09-java.js"></script>
+<script src="data/m10-pm.js"></script>
+<script src="data/m11-pmx.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

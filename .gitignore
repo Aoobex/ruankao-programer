@@ -1,0 +1,6 @@
+# 本地文件，不入库
+server.log
+.playwright-mcp/
+
+# 官方教材 PDF（受版权保护，仅本地参考，不随仓库分发）
+data/*.pdf
