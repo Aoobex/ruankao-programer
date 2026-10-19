@@ -120,6 +120,27 @@
       <div class="sub" style="margin:6px 0 10px">已做 ${w.done}/${w.total} 题</div>
       <button class="btn sm ghost" onclick="startQuiz(['${w.m.id}'],15)">马上练</button></div>`).join('')}</div>` : ''}
 
+    <h2>换设备 / 同步进度</h2>
+    <div class="card">
+      <p class="sub" style="margin-bottom:12px">进度存在本机浏览器里，换电脑或清缓存就会丢。用下面两个按钮手动搬：<b>导出</b>得到一段文字（或 .json 文件），在另一台机器上 <b>导入</b>即可合并。</p>
+      <div class="row">
+        <button class="btn sm" onclick="exportProgress()">导出进度</button>
+        <button class="btn sm ghost" onclick="copyProgress()">复制到剪贴板</button>
+        <button class="btn sm ghost" onclick="importPrompt()">导入进度</button>
+        <label class="btn sm ghost" style="cursor:pointer;margin:0">从文件导入
+          <input type="file" accept=".json,application/json" onchange="importFile(this)" style="display:none">
+        </label>
+        <span class="spacer"></span>
+        <span class="sub" id="syncHint"></span>
+      </div>
+      <div id="exportBox" style="display:none;margin-top:12px">
+        <textarea id="exportText" readonly style="width:100%;height:110px;background:#0b0e12;color:#8b98a5;border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.5 Consolas,monospace;resize:vertical"></textarea>
+        <div class="row" style="margin-top:8px"><span class="sub">这段文字就是你的全部进度，存到备忘录/微信文件传输助手都行。</span></div>
+      </div>
+      <hr>
+      <div class="sub"><b>为什么不做自动同步：</b>GitHub 同步需要一个带写权限的 token 存在浏览器里，一旦泄露等于把仓库交出去；Gist 也一样。手动导出/导入零风险，5 秒完成，5 天里用不了几次。</div>
+    </div>
+
     <h2>怎么用这个系统（先看这个）</h2>
     <div class="card">
       <ol style="margin-left:18px;display:grid;gap:8px;color:#c7d1db">
@@ -136,6 +157,129 @@
   }
 
   window.setExamDate = function (v) { S.examDate = v; save(); render(); };
+
+  /* ---------- 进度导出 / 导入（跨设备同步） ---------- */
+  const SYNC_TAG = 'ruankao-programer';
+
+  function exportPayload() {
+    return JSON.stringify({
+      app: SYNC_TAG,
+      v: 1,
+      at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      data: S
+    });
+  }
+
+  window.exportProgress = function () {
+    const box = document.getElementById('exportBox');
+    const ta = document.getElementById('exportText');
+    ta.value = exportPayload();
+    box.style.display = 'block';
+    ta.focus(); ta.select();
+    hint('已生成，全选复制即可');
+  };
+
+  window.copyProgress = function () {
+    const txt = exportPayload();
+    const done = () => hint('已复制到剪贴板');
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(txt).then(done).catch(() => fallbackCopy(txt, done));
+    } else {
+      fallbackCopy(txt, done);
+    }
+  };
+
+  function fallbackCopy(txt, done) {
+    // file:// 下 clipboard API 不可用，退回 textarea + execCommand
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.cssText = 'position:fixed;top:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) done(); else { window.exportProgress(); hint('无法自动复制，已展开文本，请手动全选复制'); }
+  }
+
+  window.importPrompt = function () {
+    const txt = prompt('把另一台机器导出的进度文字粘贴到这里：');
+    if (txt === null) return;
+    applyImport(txt);
+  };
+
+  window.importFile = function (input) {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => applyImport(String(reader.result || ''));
+    reader.onerror = () => alert('读取文件失败');
+    reader.readAsText(f, 'utf-8');
+    input.value = '';
+  };
+
+  function applyImport(raw) {
+    let obj;
+    try { obj = JSON.parse(raw); } catch (e) { return alert('格式不对：这不是本系统导出的进度文字'); }
+    const incoming = obj && obj.data ? obj.data : obj;
+    if (!incoming || typeof incoming !== 'object' || !('picked' in incoming || 'cards' in incoming || 'days' in incoming)) {
+      return alert('格式不对：没找到进度数据');
+    }
+    const stat = mergeProgress(incoming);
+    save(); render();
+    alert('导入完成，已合并：\n' +
+      '知识卡 +' + stat.cards + ' 张\n' +
+      '刷题记录 +' + stat.picked + ' 条\n' +
+      '错题 +' + stat.wrong + ' 条\n' +
+      '模考记录 +' + stat.mock + ' 次\n' +
+      '已完成天数 +' + stat.days + ' 天\n\n' +
+      '（同一道题两边都有记录时，以"做对"为准）');
+  }
+
+  /* 合并而不是覆盖：两边都学过的内容不会互相冲掉 */
+  function mergeProgress(inc) {
+    const stat = { cards: 0, picked: 0, wrong: 0, mock: 0, days: 0 };
+
+    Object.keys(inc.cards || {}).forEach(k => {
+      if (!S.cards[k]) { S.cards[k] = 1; stat.cards++; }
+    });
+
+    Object.keys(inc.days || {}).forEach(k => {
+      if (inc.days[k] && !S.days[k]) { S.days[k] = true; stat.days++; }
+    });
+
+    Object.keys(inc.picked || {}).forEach(id => {
+      const a = S.picked[id], b = inc.picked[id];
+      if (!a) { S.picked[id] = b; stat.picked++; }
+      else if (!a.ok && b && b.ok) { S.picked[id] = b; stat.picked++; }
+    });
+
+    Object.keys(inc.wrong || {}).forEach(id => {
+      const cur = S.wrong[id] || 0, add = inc.wrong[id] || 0;
+      if (add > cur) { S.wrong[id] = add; stat.wrong++; }
+    });
+
+    const seen = {};
+    (S.mock || []).forEach(m => { seen[m.t + '|' + m.score + '|' + m.n] = 1; });
+    (inc.mock || []).forEach(m => {
+      const k = m.t + '|' + m.score + '|' + m.n;
+      if (!seen[k]) { seen[k] = 1; S.mock.push(m); stat.mock++; }
+    });
+    S.mock.sort((x, y) => String(x.t).localeCompare(String(y.t)));
+    if (S.mock.length > 30) S.mock = S.mock.slice(-30);
+
+    if (!S.examDate && inc.examDate) S.examDate = inc.examDate;
+    if (inc.start && (!S.start || inc.start < S.start)) S.start = inc.start;
+
+    return stat;
+  }
+
+  function hint(msg) {
+    const el = document.getElementById('syncHint');
+    if (!el) return;
+    el.textContent = msg;
+    setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 2500);
+  }
   window.resetAll = function () {
     if (!confirm('确定清空所有学习进度？')) return;
     Object.keys(S).forEach(k => delete S[k]);
