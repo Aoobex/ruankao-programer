@@ -1,0 +1,15 @@
+{
+  "app": "ruankao-programer",
+  "v": 1,
+  "at": "2026-10-19",
+  "data": {
+    "cards": {},
+    "days": {},
+    "picked": {},
+    "wrong": {},
+    "mock": [],
+    "start": "2026-10-19",
+    "examDate": "",
+    "savedAt": 0
+  }
+}
