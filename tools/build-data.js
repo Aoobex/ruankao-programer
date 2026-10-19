@@ -25,6 +25,7 @@ global.window = {};
 fs.readdirSync(DATA).filter(f => f.endsWith('.js')).forEach(f => require(path.join(DATA, f)));
 const modules = window.RK_DATA.modules;
 const questions = window.RK_DATA.questions;
+const examples = window.RK_DATA.examples || [];
 
 // 2. 打散答案位置：第 i 题的正确项放到 i%4
 questions.forEach((q, i) => {
@@ -55,9 +56,20 @@ modules.forEach(m => {
   if (!m.cards || !m.cards.length) problems.push('模块无卡片: ' + m.id);
   if (!questions.some(q => q.m === m.id)) warnings.push('模块无题目（只当讲义用）: ' + m.id);
 });
+
+// 例题挂载点校验：模块必须存在、卡片序号必须存在、每题三段齐全
+examples.forEach(e => {
+  const mod = modules.find(m => m.id === e.m);
+  if (!mod) return problems.push('例题指向不存在的模块: ' + e.m);
+  if (!mod.cards[e.i]) return problems.push('例题指向不存在的卡片: ' + e.m + '#' + e.i + '（该模块只有 ' + mod.cards.length + ' 张卡）');
+  if (!Array.isArray(e.ex) || !e.ex.length) return problems.push('例题为空: ' + e.m + '#' + e.i);
+  e.ex.forEach((x, j) => {
+    if (!x.q || !Array.isArray(x.s) || !x.s.length || !x.a) problems.push('例题三段不完整: ' + e.m + '#' + e.i + ' 第' + (j + 1) + '题');
+  });
+});
 if (problems.length) { console.error('校验失败:\n' + problems.join('\n')); process.exit(1); }
 
-// 4. 按文件分组写出
+// 4. 按文件分组写出（例题文件 ex-*.js 是手写的，只校验不重写）
 const groups = {};
 modules.forEach(m => { (groups[FILES[m.id]] = groups[FILES[m.id]] || { mods: [], qs: [] }).mods.push(m); });
 questions.forEach(q => { (groups[FILES[q.m]] = groups[FILES[q.m]] || { mods: [], qs: [] }).qs.push(q); });
@@ -73,8 +85,11 @@ Object.keys(groups).forEach(file => {
 const dist = [0, 0, 0, 0];
 questions.forEach(q => dist[q.a]++);
 console.log('OK  模块', modules.length, '卡片', modules.reduce((s, m) => s + m.cards.length, 0),
-  '题目', questions.length);
+  '题目', questions.length, '例题卡', examples.length,
+  '例题数', examples.reduce((s, e) => s + e.ex.length, 0));
 console.log('答案分布 A/B/C/D:', dist.map(x => Math.round(x / questions.length * 100) + '%').join(' '));
 console.log('各模块题量:', Object.entries(questions.reduce((a, q) => (a[q.m] = (a[q.m] || 0) + 1, a), {})).map(([k, v]) => k + ':' + v).join(' '));
+const noEx = modules.filter(m => m.priority === 'high' && !examples.some(e => e.m === m.id));
+if (noEx.length) console.log('还没配例题的高优先级模块:', noEx.map(m => m.id + ' ' + m.name).join(' / '));
 console.log('写出文件:', Object.keys(groups).join(', '));
 if (warnings.length) console.log('提示:\n  ' + warnings.join('\n  '));

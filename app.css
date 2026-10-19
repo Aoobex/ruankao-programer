@@ -97,6 +97,28 @@ p{color:#c7d1db}
 }
 .tip:empty{display:none}
 
+/* 知识卡内的例题：题目 → 分步 → 答案 */
+.ex{
+  margin-top:13px;border-radius:8px;overflow:hidden;
+  border:1px solid rgba(88,166,255,.28);background:#12171d;
+}
+.ex-hd{
+  padding:6px 13px;font-size:12px;font-weight:700;letter-spacing:.5px;
+  color:var(--accent2);background:rgba(88,166,255,.1);
+  border-bottom:1px solid rgba(88,166,255,.2);
+}
+.ex-item{padding:12px 14px}
+.ex-item + .ex-item{border-top:1px dashed var(--line)}
+.ex-q{font-size:14px;color:var(--text);line-height:1.65}
+.ex-s{margin:9px 0 0 20px;display:grid;gap:5px}
+.ex-s li{font-size:13.5px;color:#b8c4d0;line-height:1.65}
+.ex-s li::marker{color:var(--accent2);font-size:12px;font-weight:700}
+.ex-a{
+  margin-top:9px;padding-top:8px;border-top:1px dashed var(--line);
+  font-size:13.5px;color:var(--dim);
+}
+.ex-a b{color:var(--accent);font-weight:700;font-size:14.5px}
+
 /* quiz */
 .qwrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
 .qmeta{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--dim);margin-bottom:12px}
@@ -165,7 +187,13 @@ hr{border:none;border-top:1px solid var(--line);margin:18px 0}
   .card,.kcard{border-color:#ccc;break-inside:avoid}
   .kcard>summary{color:#000}
   .kcard{display:block}
+  /* details 未展开时浏览器不渲染内部内容，打印时要强制展开 */
+  details.kcard > *:not(summary){display:block !important}
   .kcard .inner{display:block !important}
   .sub,.kcard li,.tip{color:#333}
+  .ex{background:#fafafa;border-color:#ccc}
+  .ex-hd{background:#eee;color:#333;border-color:#ccc}
+  .ex-s li{color:#333}
+  .ex-a b{color:#000}
   code,pre{background:#f6f6f6;color:#000;border-color:#ddd}
 }

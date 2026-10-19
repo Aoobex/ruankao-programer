@@ -8,6 +8,14 @@
   const M = {};
   MODULES.forEach(m => { M[m.id] = m; });
 
+  /* 知识卡例题：按 模块id + 卡片序号 挂到卡片上 */
+  const EX = {};
+  (DATA.examples || []).forEach(e => { EX[e.m + '#' + e.i] = e.ex; });
+  MODULES.forEach(m => m.cards.forEach((c, i) => {
+    const ex = EX[m.id + '#' + i];
+    if (ex) c.ex = ex;
+  }));
+
   /* ---------- 状态 ---------- */
   const KEY = 'rk5.v1';
   const DEF = { cards: {}, days: {}, picked: {}, wrong: {}, mock: [], start: todayStr(), examDate: '' };
@@ -165,7 +173,7 @@
     const m = M[learnMod] || MODULES[0];
     if (!m) return '<div class="empty">没有知识卡数据</div>';
     const cp = cardProgress(m);
-    return `<h1>知识卡</h1><p class="sub">点开卡片看要点，确认记住了就勾「已掌握」。每张卡都是能直接背的结论。</p>
+    return `<h1>知识卡</h1><p class="sub">点开卡片看要点，确认记住了就勾「已掌握」。每张卡都是能直接背的结论，并配一道「例题 · 这样用」演示怎么套公式。</p>
     <div class="modtabs" style="margin-top:16px">${MODULES.map(x => {
       const p = cardProgress(x);
       return `<button class="${x.id === m.id ? 'active' : ''}" onclick="setLearn('${x.id}')">${esc(x.name)} <span style="opacity:.7">${p}/${x.cards.length}</span></button>`;
@@ -180,6 +188,14 @@
       const k = cardKey(m.id, i), on = !!S.cards[k], open = !!openCards[k];
       return `<details class="kcard" ${open ? 'open' : ''} ontoggle="setOpen('${k}',this.open)"><summary>${esc(c.t)}${on ? ' <span class="badge" style="color:var(--accent)">已掌握</span>' : ''}</summary>
       <div class="inner"><ul>${c.b.map(x => '<li>' + esc(x) + '</li>').join('')}</ul>
+      ${(c.ex && c.ex.length) ? `<div class="ex">
+        <div class="ex-hd">例题 · 这样用</div>
+        ${c.ex.map(e => `<div class="ex-item">
+          <div class="ex-q">${esc(e.q)}</div>
+          <ol class="ex-s">${e.s.map(s => '<li>' + esc(s) + '</li>').join('')}</ol>
+          <div class="ex-a">答案：<b>${esc(e.a)}</b></div>
+        </div>`).join('')}
+      </div>` : ''}
       ${c.code ? '<pre><code>' + esc(c.code) + '</code></pre>' : ''}
       ${c.tip ? '<div class="tip">💡 ' + esc(c.tip) + '</div>' : ''}
       <div class="row" style="margin-top:12px"><button class="btn sm ${on ? 'ghost' : ''}" onclick="toggleCard('${m.id}',${i})">${on ? '取消已掌握' : '标记已掌握'}</button></div>
@@ -193,6 +209,17 @@
     render();
   };
   window.setOpen = function (k, open) { if (open) openCards[k] = 1; else delete openCards[k]; };
+  /* 打印速查表：details 未展开时浏览器不渲染内部内容，打印前全部展开，打完还原 */
+  window.addEventListener('beforeprint', function () {
+    document.querySelectorAll('details.kcard').forEach(d => {
+      if (!d.open) { d.dataset.wasClosed = '1'; d.open = true; }
+    });
+  });
+  window.addEventListener('afterprint', function () {
+    document.querySelectorAll('details.kcard[data-was-closed]').forEach(d => {
+      d.open = false; delete d.dataset.wasClosed;
+    });
+  });
   window.toggleCard = function (mid, i) {
     const k = cardKey(mid, i);
     if (S.cards[k]) delete S.cards[k]; else S.cards[k] = 1;
