@@ -8,6 +8,18 @@
   const M = {};
   MODULES.forEach(m => { M[m.id] = m; });
 
+  /* 历年真题卷（来自希赛网公开 PDF，仅上午卷；无标准答案，练习后自评） */
+  const PAPERS = DATA.papers || [];
+  const PAPER = {};
+  PAPERS.forEach(p => { PAPER[p.id] = p; });
+  const ZT_BY_ID = {};
+  PAPERS.forEach(p => p.qs.forEach((a, i) => {
+    ZT_BY_ID[p.id + '#' + i] = { q: a[0], o: a[1], m: a[2] || 'cs', dup: a[3] || '', pid: p.id, i };
+  }));
+  function ztTotal() { return PAPERS.reduce((s, p) => s + p.qs.length, 0); }
+  function ztUniqueTotal() { return PAPERS.reduce((s, p) => s + p.qs.filter(a => !a[3]).length, 0); }
+  function ztDoneCount() { return PAPERS.filter(p => S.paper[p.id] && S.paper[p.id].done).length; }
+
   /* 知识卡例题：按 模块id + 卡片序号 挂到卡片上 */
   const EX = {};
   (DATA.examples || []).forEach(e => { EX[e.m + '#' + e.i] = e.ex; });
@@ -18,7 +30,7 @@
 
   /* ---------- 状态 ---------- */
   const KEY = 'rk5.v1';
-  const DEF = { cards: {}, days: {}, picked: {}, wrong: {}, mock: [], start: todayStr(), examDate: '', savedAt: 0 };
+  const DEF = { cards: {}, days: {}, picked: {}, wrong: {}, mock: [], paper: {}, ztWrong: {}, start: todayStr(), examDate: '', savedAt: 0 };
   let S = load();
   function todayStr() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
@@ -84,9 +96,10 @@
     document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     renderTop();
     const el = document.getElementById('main');
-    el.innerHTML = ({ home: vHome, plan: vPlan, learn: vLearn, quiz: vQuiz, mock: vMock, wrong: vWrong }[tab] || vHome)();
+    el.innerHTML = ({ home: vHome, plan: vPlan, learn: vLearn, quiz: vQuiz, mock: vMock, wrong: vWrong, zhenti: vZhenti }[tab] || vHome)();
     if (tab === 'quiz' && quizState) renderQuizBody();
     if (tab === 'mock' && mockState) mountMock();
+    if (tab === 'zhenti' && paperState) mountPaper();
   }
 
   /* ---------- 首页 ---------- */
@@ -123,6 +136,10 @@
     <h2>进度</h2>
     <div class="card">
       <p class="sub" style="margin-bottom:12px">进度存在浏览器本地（localStorage 的 <code>rk5.v1</code>），同时会读取仓库里的 <code>data/progress.json</code> 作为初始进度。换设备：导出 → 覆盖 <code>data/progress.json</code> → commit，另一台机器打开就自动带上。</p>
+      <div class="row" style="margin-bottom:12px">
+        <span class="sub">历年真题：已练 <b>${ztDoneCount()}</b>/${PAPERS.length} 套 · 共 <b>${ztTotal()}</b> 题 · 标记错题 <b>${ztWrongCount()}</b> 题</span>
+        <span class="spacer"></span><button class="btn sm ghost" onclick="go('zhenti')">去练真题</button>
+      </div>
       <div class="row">
         <button class="btn sm" onclick="exportProgress()">导出进度</button>
         <button class="btn sm ghost" onclick="resetAll()">重置进度</button>
@@ -412,6 +429,223 @@
     quizState = { list, idx: 0, mods: null };
     tab = 'quiz'; render();
   };
+
+  /* ---------- 历年真题（整卷练习 + 自评） ---------- */
+  let paperState = null, paperTimer = null, paperSec = 0;
+
+  function ztRec(id) { return S.paper[id] || null; }
+  function ztMarks(id) { const r = ztRec(id); return (r && r.marks) || {}; }
+  function ztScore(id) {
+    const marks = ztMarks(id);
+    const n = Object.keys(marks).length;
+    const ok = Object.values(marks).filter(v => v > 0).length;
+    return { n, ok, rate: n ? Math.round(ok / n * 100) : -1 };
+  }
+  function ztWrongCount() { return Object.keys(S.ztWrong || {}).length; }
+
+  function vZhenti() {
+    if (paperState && paperState.phase === 'run') return `<div id="paperRun"></div>`;
+    if (paperState && paperState.phase === 'review') return paperReviewHTML();
+    const done = ztDoneCount();
+    return `<h1>历年真题</h1>
+    <p class="sub">${PAPERS.length} 套上午卷，共 ${ztTotal()} 题（去重后 ${ztUniqueTotal()} 题），2009 上半年—2021 下半年。
+    这些卷子来自公开 PDF，<b>不含官方答案</b>：交卷后按原卷解析逐题自评，标记错的会进「真题错题」。</p>
+    <div class="grid g3" style="margin:18px 0">
+      <div class="card"><div class="sub">真题总量</div><div style="font-size:30px;font-weight:700">${ztTotal()}<span class="sub" style="font-size:14px"> 题</span></div><div class="sub">${PAPERS.length} 套整卷</div></div>
+      <div class="card"><div class="sub">已练整卷</div><div style="font-size:30px;font-weight:700">${done}<span class="sub" style="font-size:14px"> / ${PAPERS.length}</span></div><div class="bar" style="margin-top:8px"><i style="width:${Math.round(done / Math.max(1, PAPERS.length) * 100)}%"></i></div></div>
+      <div class="card"><div class="sub">真题错题</div><div style="font-size:30px;font-weight:700;color:${ztWrongCount() ? 'var(--accent2)' : 'var(--text)'}">${ztWrongCount()}<span class="sub" style="font-size:14px"> 题</span></div>
+      <div class="row" style="margin-top:8px">${ztWrongCount() ? `<button class="btn sm gold" onclick="startZtWrong()">重做错题</button>` : '<span class="sub">还没有标记错题</span>'}</div></div>
+    </div>
+    <div class="card hl"><div class="row">
+      <div><b>真题速刷</b><div class="sub" style="margin-top:4px">从去重后的真题池随机抽题，一次 20 题，同样交卷后自评。</div></div>
+      <span class="spacer"></span>
+      <button class="btn" onclick="startZtRandom(20)">随机 20 题</button>
+      <button class="btn ghost" onclick="startZtRandom(40)">随机 40 题</button>
+    </div></div>
+    <h2>整套练习</h2>
+    <table><tr><th>试卷</th><th>题数</th><th>去重后</th><th>状态</th><th></th></tr>
+    ${PAPERS.map(p => {
+      const rec = ztRec(p.id), s = ztScore(p.id);
+      const uniq = p.qs.filter(a => !a[3]).length;
+      return `<tr>
+        <td>${esc(p.t)}<span class="sub"> 上午卷</span></td>
+        <td class="num">${p.qs.length}</td>
+        <td class="num">${uniq === p.qs.length ? '—' : uniq}</td>
+        <td>${rec && rec.done ? `<span class="pill ${s.rate >= 60 ? 'high' : 'mid'}">已练 · 自评 ${s.n ? s.rate + '%' : '未标'}</span>` : '<span class="sub">未开始</span>'}</td>
+        <td><button class="btn sm ghost" onclick="startPaper('${p.id}')">${rec && rec.done ? '再做一遍' : '开始'}</button></td>
+      </tr>`;
+    }).join('')}</table>
+    <p class="sub" style="margin-top:14px">说明：2020 下半年与更早的卷子有少量题目配图，图片无法在网页里还原，这类题已跳过，所以部分卷子不足 75 题。
+    原卷 PDF 约 30MB，没有随仓库发布；逐题解析见希赛网「程序员历年真题」页（<a href="https://www.educity.cn/rk/zhenti/cxy/" target="_blank" rel="noopener" style="color:var(--accent2)">educity.cn/rk/zhenti/cxy</a>）。</p>`;
+  }
+
+  function startPaperRun(id, refs, title) {
+    paperState = { id, title, list: refs, picks: {}, idx: 0, phase: 'run', started: Date.now() };
+    paperSec = Math.max(20 * 60, refs.length * 60);
+    tab = 'zhenti'; render(); window.scrollTo(0, 0);
+  }
+
+  window.startPaper = function (id) {
+    const p = PAPER[id]; if (!p) return;
+    startPaperRun(id, p.qs.map((_, i) => ({ p: id, i })), p.t + ' 上午卷');
+  };
+
+  window.startZtRandom = function (n) {
+    const pool = [];
+    PAPERS.forEach(p => p.qs.forEach((a, i) => { if (!a[3]) pool.push({ p: p.id, i }); }));
+    const list = shuffle(pool).slice(0, n || 20);
+    startPaperRun('random', list, '真题速刷 · ' + list.length + ' 题');
+  };
+
+  window.startZtWrong = function () {
+    const keys = Object.keys(S.ztWrong || {});
+    const list = keys.map(k => { const a = k.split('#'); return { p: a[0], i: +a[1] }; })
+                     .filter(r => ZT_BY_ID[r.p + '#' + r.i]);
+    if (!list.length) { alert('还没有标记错的真题'); return; }
+    startPaperRun('wrong', shuffle(list), '真题错题重做 · ' + list.length + ' 题');
+  };
+
+  function paperQ(ref) { return ZT_BY_ID[ref.p + '#' + ref.i]; }
+  function nowLeft() { return Math.max(0, paperSec - Math.floor((Date.now() - paperState.started) / 1000)); }
+
+  function mountPaper() {
+    clearInterval(paperTimer);
+    const holder = document.getElementById('paperRun');
+    if (!holder || !paperState || paperState.phase !== 'run') return;
+    holder.innerHTML = `<div class="card" style="position:sticky;top:56px;z-index:10">
+      <div class="row"><b>${esc(paperState.title)}</b><span class="pill">${paperState.list.length} 题</span>
+      <span class="spacer"></span><span class="timer" id="ztTmr">--:--</span>
+      <button class="btn ghost sm" onclick="abandonPaper()">放弃</button>
+      <button class="btn" onclick="submitPaper()">交卷</button></div></div>
+      <div class="grid" style="grid-template-columns:1fr;gap:14px"><div id="paperQ"></div>
+      <div class="card"><b>答题卡</b><div class="qlist" id="paperList" style="margin-top:10px"></div></div></div>`;
+    ztTick(); paperTimer = setInterval(ztTick, 1000);
+    renderPaperQ();
+  }
+
+  function ztTick() {
+    if (!paperState || paperState.phase !== 'run') { clearInterval(paperTimer); return; }
+    const r = nowLeft(), el = document.getElementById('ztTmr');
+    if (el) { el.textContent = pad(Math.floor(r / 60)) + ':' + pad(r % 60); el.classList.toggle('warn', r < 300); }
+    if (r <= 0) submitPaper();
+  }
+
+  function renderPaperQ() {
+    const st = paperState, ref = st.list[st.idx], q = paperQ(ref);
+    if (!q) return;
+    const sel = st.picks[ref.p + '#' + ref.i];
+    const box = document.getElementById('paperQ'); if (!box) return;
+    box.innerHTML = `<div class="qwrap">
+      <div class="qmeta"><span class="pill">${esc((M[q.m] || {}).name || '综合')}</span>
+        <span class="pill">${ref.p === 'random' || ref.p === 'wrong' ? '真题' : esc(ref.p.slice(0, 4) + '年' + (ref.p.slice(4) === 'a' ? '上' : '下'))}</span>
+        <span class="spacer"></span><span>第 ${st.idx + 1} / ${st.list.length} 题</span></div>
+      <div class="qtext">${esc(q.q)}</div>
+      <div class="opts">${q.o.map((o, i) => `<button class="opt ${sel === i ? 'right' : ''}" onclick="paperPick(${i})"><span class="k">${'ABCD'[i]}</span><span>${esc(o)}</span></button>`).join('')}</div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn ghost" onclick="paperNav(-1)" ${st.idx === 0 ? 'disabled' : ''}>← 上一题</button>
+        <button class="btn" onclick="paperNav(1)">下一题 →</button>
+        <span class="spacer"></span><button class="btn ghost sm" onclick="submitPaper()">交卷</button>
+      </div></div>`;
+    renderPaperList();
+  }
+
+  function renderPaperList() {
+    const el = document.getElementById('paperList'); if (!el || !paperState) return;
+    el.innerHTML = paperState.list.map((ref, i) => {
+      const done = paperState.picks[ref.p + '#' + ref.i] !== undefined;
+      return `<button class="qitem ${done ? 'done' : ''} ${i === paperState.idx ? 'cur' : ''}" onclick="paperGoto(${i})"><span class="n">${i + 1}</span></button>`;
+    }).join('');
+  }
+
+  window.paperPick = function (i) {
+    const ref = paperState.list[paperState.idx];
+    paperState.picks[ref.p + '#' + ref.i] = i;
+    renderPaperQ();
+  };
+  window.paperNav = function (d) {
+    const n = paperState.idx + d;
+    if (n < 0 || n >= paperState.list.length) return;
+    paperState.idx = n; renderPaperQ();
+  };
+  window.paperGoto = function (i) { paperState.idx = i; renderPaperQ(); };
+  window.abandonPaper = function () { clearInterval(paperTimer); paperState = null; render(); };
+
+  window.submitPaper = function () {
+    clearInterval(paperTimer);
+    const st = paperState;
+    const rec = S.paper[st.id] || { marks: {} };
+    rec.done = 1; rec.n = st.list.length; rec.at = todayStr();
+    rec.marks = rec.marks || {};
+    S.paper[st.id] = rec;
+    st.phase = 'review';
+    save(); render(); window.scrollTo(0, 0);
+  };
+
+  function paperReviewHTML() {
+    const st = paperState, rec = ztRec(st.id) || { marks: {} };
+    const marks = rec.marks || {};
+    const answered = st.list.filter(r => st.picks[r.p + '#' + r.i] !== undefined).length;
+    const marked = st.list.filter(r => marks[r.p + '#' + r.i]).length;
+    const ok = st.list.filter(r => marks[r.p + '#' + r.i] > 0).length;
+    const rate = marked ? Math.round(ok / marked * 100) : -1;
+    return `<h1>${esc(st.title)} · 交卷</h1>
+    <div class="card hl"><div class="row" style="gap:26px">
+      <div><div class="sub">作答</div><div class="score-big">${answered}<span class="sub" style="font-size:16px">/${st.list.length}</span></div></div>
+      <div><div class="sub">已自评</div><div class="score-big">${marked}<span class="sub" style="font-size:16px">/${st.list.length}</span></div></div>
+      <div><div class="sub">自评正确率</div><div class="score-big ${rate >= 60 ? 'pass' : rate < 0 ? '' : 'fail'}">${rate < 0 ? '—' : rate + '%'}</div></div>
+      <span class="spacer"></span>
+      <div><button class="btn ghost sm" onclick="markAllZt(1)">全部标为对</button>
+      <button class="btn ghost sm" onclick="markAllZt(0)">清空标记</button></div>
+    </div>
+    <p class="sub" style="margin-top:12px">这份卷子没有官方答案。请对照原卷 PDF 或希赛在线解析，把做错的题点成「✗ 错」——错的会进「真题错题」，下次可一键重做。</p></div>
+    <div id="paperReview">${paperReviewList()}</div>
+    <div class="row" style="margin-top:18px"><button class="btn" onclick="backZhenti()">返回真题列表</button>
+      ${ztWrongCount() ? `<button class="btn ghost" onclick="startZtWrong()">重做真题错题（${ztWrongCount()}）</button>` : ''}</div>`;
+  }
+
+  function paperReviewList() {
+    const st = paperState, rec = ztRec(st.id) || { marks: {} }, marks = rec.marks || {};
+    return st.list.map((ref, i) => {
+      const q = paperQ(ref); if (!q) return '';
+      const key = ref.p + '#' + ref.i, sel = st.picks[key], mk = marks[key];
+      return `<div class="card" style="margin-top:10px">
+        <div class="qmeta" style="display:flex;gap:8px;margin-bottom:8px">
+          <span class="pill">第 ${i + 1} 题</span><span class="pill">${esc((M[q.m] || {}).name || '综合')}</span>
+          ${sel === undefined ? '<span class="pill" style="color:var(--warn)">未作答</span>' : `<span class="pill">你选 ${'ABCD'[sel]}</span>`}
+          <span class="spacer"></span>
+          <button class="btn sm ${mk > 0 ? '' : 'ghost'}" onclick="markZt('${key}',1)">✓ 对</button>
+          <button class="btn sm ${mk < 0 ? 'gold' : 'ghost'}" onclick="markZt('${key}',-1)">✗ 错</button>
+        </div>
+        <div class="qtext" style="font-size:15px">${esc(q.q)}</div>
+        <div class="opts" style="margin-top:10px">${q.o.map((o, j) => `<div class="opt ${sel === j ? 'right' : ''}" style="cursor:default"><span class="k">${'ABCD'[j]}</span><span>${esc(o)}</span></div>`).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  window.markZt = function (key, ok) {
+    const st = paperState; if (!st) return;
+    const rec = S.paper[st.id] || { marks: {}, n: st.list.length, done: 1 };
+    rec.marks = rec.marks || {};
+    const cur = rec.marks[key];
+    if (ok === 0) { delete rec.marks[key]; delete S.ztWrong[key]; }
+    else {
+      rec.marks[key] = ok;
+      if (ok < 0) S.ztWrong[key] = (S.ztWrong[key] || 0) + 1; else delete S.ztWrong[key];
+    }
+    S.paper[st.id] = rec;
+    save();
+    render();
+  };
+
+  window.markAllZt = function (ok) {
+    const st = paperState; if (!st) return;
+    const rec = S.paper[st.id] || { marks: {}, n: st.list.length, done: 1 };
+    if (!ok) { rec.marks = {}; st.list.forEach(r => delete S.ztWrong[r.p + '#' + r.i]); }
+    else { st.list.forEach(r => { const k = r.p + '#' + r.i; rec.marks[k] = 1; delete S.ztWrong[k]; }); }
+    S.paper[st.id] = rec; save(); render();
+  };
+
+  window.backZhenti = function () { paperState = null; render(); };
 
   /* ---------- 模考 ---------- */
   let mockState = null, mockTimer = null;
