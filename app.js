@@ -135,7 +135,14 @@
 
     <h2>进度</h2>
     <div class="card">
-      <p class="sub" style="margin-bottom:12px">进度存在浏览器本地（localStorage 的 <code>rk5.v1</code>），同时会读取仓库里的 <code>data/progress.json</code> 作为初始进度。换设备：导出 → 覆盖 <code>data/progress.json</code> → commit，另一台机器打开就自动带上。</p>
+      <p class="sub" style="margin-bottom:12px">进度存在浏览器本地（localStorage 的 <code>rk5.v1</code>），启动时会和仓库里的 <code>data/progress.json</code> <b>取并集</b>合并。换设备：在旧机器导出 → 覆盖 <code>data/progress.json</code> → commit，新机器打开就自动带上。</p>
+      <div class="row" style="margin-bottom:10px">
+        <span class="sub">仓库进度：${repoState.ok
+          ? `已读取 <b>${repoState.q}</b> 题 / <b>${repoState.c}</b> 张卡`
+          : esc(repoState.msg)}</span>
+        <span class="spacer"></span>
+        <button class="btn sm ghost" onclick="syncProgress()">重新从仓库读取</button>
+      </div>
       <div class="row" style="margin-bottom:12px">
         <span class="sub">历年真题：已练 <b>${ztDoneCount()}</b>/${PAPERS.length} 套 · 共 <b>${ztTotal()}</b> 题 · 标记错题 <b>${ztWrongCount()}</b> 题</span>
         <span class="spacer"></span><button class="btn sm ghost" onclick="go('zhenti')">去练真题</button>
@@ -190,26 +197,71 @@
     hint('已下载 progress.json，覆盖 data/progress.json 后 commit');
   };
 
-  /* 启动时读 data/progress.json：本机没有进度、或仓库里的更早就采用，避免冲掉本机正在学的记录 */
-  function loadRepoProgress() {
-    if (!window.fetch) return;
+  /* 启动/手动：把 data/progress.json 并进本机进度。
+     规则是「并集」：仓库有、本机没有的键补进来；同一个键冲突时，谁的 savedAt 新用谁。
+     旧版是「本机有进度且 savedAt 更新就整份跳过」，只要在本机点过一题，
+     就永远读不到仓库里的进度——这是之前"文件里有数据但页面不同步"的根因。 */
+  let repoState = { ok: false, q: 0, c: 0, msg: '未读取' };
+
+  function unionInto(dst, src, trustSrc) {
+    let added = 0;
+    Object.keys(src || {}).forEach(k => {
+      if (!(k in dst)) { dst[k] = src[k]; added++; }
+      else if (trustSrc) { dst[k] = src[k]; }
+    });
+    return added;
+  }
+
+  window.syncProgress = function () { syncFromRepo(true); };
+
+  function syncFromRepo(manual) {
+    if (!window.fetch) { repoState = { ok: false, q: 0, c: 0, msg: '浏览器不支持 fetch' }; return; }
     fetch('data/progress.json', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : null))
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(obj => {
         const inc = obj && obj.data ? obj.data : obj;
-        if (!inc || !inc.picked) return;
-        const localEmpty = !Object.keys(S.picked).length && !Object.keys(S.cards).length && !Object.keys(S.days).length;
-        const repoHasData = Object.keys(inc.picked || {}).length || Object.keys(inc.cards || {}).length || Object.keys(inc.days || {}).length;
-        if (!repoHasData) return;
-        const repoIsNewer = (inc.savedAt || 0) > (S.savedAt || 0);
-        if (!localEmpty && !repoIsNewer) return;
-        Object.keys(S).forEach(k => delete S[k]);
-        Object.assign(S, JSON.parse(JSON.stringify(DEF)), inc);
-        localStorage.setItem(KEY, JSON.stringify(S));
-        render();
-        hint('已载入 data/progress.json');
+        if (!inc || typeof inc !== 'object') throw new Error('不是本系统的进度文件');
+        const repoQ = Object.keys(inc.picked || {}).length;
+        const repoC = Object.keys(inc.cards || {}).length;
+        repoState = { ok: true, q: repoQ, c: repoC, msg: '已读取' };
+        if (!repoQ && !repoC && !Object.keys(inc.wrong || {}).length) {
+          render(); hint('仓库里的 progress.json 还没有进度数据');
+          return;
+        }
+        const trustSrc = (inc.savedAt || 0) > (S.savedAt || 0);
+        const addQ = unionInto(S.picked, inc.picked, trustSrc);
+        const addC = unionInto(S.cards, inc.cards, false);
+        unionInto(S.days, inc.days, false);
+        const addW = unionInto(S.wrong, inc.wrong, false);
+        Object.keys(inc.paper || {}).forEach(id => {
+          const a = S.paper[id], b = inc.paper[id];
+          if (!a) { S.paper[id] = b; return; }
+          if (Object.keys(b.marks || {}).length > Object.keys(a.marks || {}).length) S.paper[id] = b;
+        });
+        Object.keys(inc.ztWrong || {}).forEach(k => {
+          S.ztWrong[k] = Math.max(S.ztWrong[k] || 0, inc.ztWrong[k] || 0);
+        });
+        const seen = new Set((S.mock || []).map(m => JSON.stringify(m)));
+        (inc.mock || []).forEach(m => {
+          const k = JSON.stringify(m);
+          if (!seen.has(k)) { seen.add(k); S.mock.push(m); }
+        });
+        if (!S.start) S.start = inc.start || S.start;
+        if (!S.examDate && inc.examDate) S.examDate = inc.examDate;
+        S.savedAt = Math.max(S.savedAt || 0, inc.savedAt || 0);
+        save(); render();
+        hint(addQ || addC || addW
+          ? `已从仓库合并：新增 ${addQ} 题 / ${addC} 张卡 / ${addW} 道错题`
+          : '本机进度已包含仓库里的全部内容，无需合并');
       })
-      .catch(() => { /* file:// 下 fetch 被浏览器拦截，忽略；localStorage 照常工作 */ });
+      .catch(e => {
+        const m = String(e && e.message || e);
+        repoState = {
+          ok: false, q: 0, c: 0,
+          msg: /Failed|NetworkError|fetch|CORS/i.test(m) ? '读取失败：file:// 打开时浏览器禁止 fetch，请用 http 访问或看线上版' : m,
+        };
+        if (manual) render();
+      });
   }
 
   function hint(msg) {
@@ -785,5 +837,5 @@
 
   /* 错题本重做入口走 startQuiz(false) */
   render();
-  loadRepoProgress();
+  syncFromRepo();
 })();
