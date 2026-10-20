@@ -47,7 +47,26 @@
 1. **浏览器本地**（localStorage 的 `rk5.v1`）——你刷题时实时写，关掉页面还在
 2. **仓库里的 `data/progress.json`**——页面启动时读它，作为跨设备的进度来源
 
-### 同步（就两条命令）
+### 一键上传
+
+双击项目里的 **`sync-progress.bat`**。
+
+它做的事：
+
+1. 在 `下载` 目录找最新的 `progress*.json`
+2. 校验是不是本系统导出的
+3. 覆盖 `data/progress.json`
+4. `git commit` + `git push`
+5. 内容没变就跳过，不产生空提交
+
+指定文件或只提交不推送：
+
+```powershell
+.\sync-progress.ps1 -File "D:\some\progress.json"
+.\sync-progress.ps1 -NoPush
+```
+
+### 手动两条命令
 
 ```powershell
 # 先在网页点「导出进度」，用下载的 progress.json 覆盖项目里的同名文件，然后：
@@ -102,6 +121,8 @@ ruankao-5day/
   data/m01..m11.js    知识卡 + 题库（每行都是数据，改起来很直观）
   data/ex-*.js        知识卡例题（按 模块id#卡片序号 挂到卡片上，不动卡片原文）
   data/progress.json  学习进度（被 git 跟踪，直接 commit 即同步）
+  sync-progress.bat   一键上传：双击它
+  sync-progress.ps1   上面那个批处理的实现
   tools/build-data.js 数据校验 + 打散答案位置（改完数据跑一次）
 ```
 
