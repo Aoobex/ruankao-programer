@@ -137,11 +137,15 @@
     <div class="card">
       <p class="sub" style="margin-bottom:12px">进度存在浏览器本地（localStorage 的 <code>rk5.v1</code>），启动时会和仓库里的 <code>data/progress.json</code> <b>取并集</b>合并。换设备：在旧机器导出 → 覆盖 <code>data/progress.json</code> → commit，新机器打开就自动带上。</p>
       <div class="row" style="margin-bottom:10px">
-        <span class="sub">仓库进度：${repoState.ok
-          ? `已读取 <b>${repoState.q}</b> 题 / <b>${repoState.c}</b> 张卡`
-          : esc(repoState.msg)}</span>
-        <span class="spacer"></span>
-        <button class="btn sm ghost" onclick="syncProgress()">重新从仓库读取</button>
+        ${isFileProtocol()
+          ? (repoState.ok
+              ? `<span class="sub">已导入：<b>${repoState.q}</b> 题 / <b>${repoState.c}</b> 张卡 <a href="javascript:;" onclick="importProgress()">再导一次</a></span>`
+              : `<span class="sub">本地打开（file://）：浏览器不允许网页直接读 <code>data/progress.json</code>。<br>点下面「导入进度」选它一次即可（也可以把文件直接拖到页面上），之后本机就有了。</span>`)
+          : `<span class="sub">仓库进度：${repoState.ok
+              ? `已读取 <b>${repoState.q}</b> 题 / <b>${repoState.c}</b> 张卡`
+              : esc(repoState.msg)}</span>
+            <span class="spacer"></span>
+            <button class="btn sm ghost" onclick="syncProgress()">重新从仓库读取</button>`}
       </div>
       <div class="row" style="margin-bottom:12px">
         <span class="sub">历年真题：已练 <b>${ztDoneCount()}</b>/${PAPERS.length} 套 · 共 <b>${ztTotal()}</b> 题 · 标记错题 <b>${ztWrongCount()}</b> 题</span>
@@ -149,6 +153,7 @@
       </div>
       <div class="row">
         <button class="btn sm" onclick="exportProgress()">导出进度</button>
+        <button class="btn sm ghost" onclick="importProgress()">导入进度</button>
         <button class="btn sm ghost" onclick="resetAll()">重置进度</button>
         <span class="spacer"></span>
         <span class="sub" id="syncHint"></span>
@@ -203,6 +208,11 @@
      就永远读不到仓库里的进度——这是之前"文件里有数据但页面不同步"的根因。 */
   let repoState = { ok: false, q: 0, c: 0, msg: '未读取' };
 
+  function isFileProtocol() {
+    try { return typeof location !== 'undefined' && location.protocol === 'file:'; }
+    catch (e) { return false; }
+  }
+
   function unionInto(dst, src, trustSrc) {
     let added = 0;
     Object.keys(src || {}).forEach(k => {
@@ -214,51 +224,114 @@
 
   window.syncProgress = function () { syncFromRepo(true); };
 
+  /* 把一份进度数据并进本机（并集）。返回新增计数，供提示用 */
+  function applyRepoProgress(inc, label) {
+    const repoQ = Object.keys((inc && inc.picked) || {}).length;
+    const repoC = Object.keys((inc && inc.cards) || {}).length;
+    repoState = { ok: true, q: repoQ, c: repoC, msg: label || '已读取' };
+    if (!repoQ && !repoC && !Object.keys((inc && inc.wrong) || {}).length) {
+      render(); hint('这份进度文件里还没有记录');
+      return { addQ: 0, addC: 0, addW: 0 };
+    }
+    const trustSrc = (inc.savedAt || 0) > (S.savedAt || 0);
+    const addQ = unionInto(S.picked, inc.picked, trustSrc);
+    const addC = unionInto(S.cards, inc.cards, false);
+    unionInto(S.days, inc.days, false);
+    const addW = unionInto(S.wrong, inc.wrong, false);
+    Object.keys(inc.paper || {}).forEach(id => {
+      const a = S.paper[id], b = inc.paper[id];
+      if (!a) { S.paper[id] = b; return; }
+      if (Object.keys(b.marks || {}).length > Object.keys(a.marks || {}).length) S.paper[id] = b;
+    });
+    Object.keys(inc.ztWrong || {}).forEach(k => {
+      S.ztWrong[k] = Math.max(S.ztWrong[k] || 0, inc.ztWrong[k] || 0);
+    });
+    const seen = new Set((S.mock || []).map(m => JSON.stringify(m)));
+    (inc.mock || []).forEach(m => {
+      const k = JSON.stringify(m);
+      if (!seen.has(k)) { seen.add(k); S.mock.push(m); }
+    });
+    if (!S.start) S.start = inc.start || S.start;
+    if (!S.examDate && inc.examDate) S.examDate = inc.examDate;
+    S.savedAt = Math.max(S.savedAt || 0, inc.savedAt || 0);
+    save(); render();
+    hint(addQ || addC || addW
+      ? `已合并${label ? '（' + label + '）' : ''}：新增 ${addQ} 题 / ${addC} 张卡 / ${addW} 道错题`
+      : `本机进度已包含这份文件的全部内容，无需合并`);
+    return { addQ, addC, addW };
+  }
+
+  /* 解析一段 JSON 文本并合并；点选文件和拖拽都走这里 */
+  window.importProgressJSON = function (text, label) {
+    let obj;
+    try { obj = JSON.parse(text); }
+    catch (e) { hint('导入失败：不是合法的 JSON'); return false; }
+    const inc = obj && obj.data ? obj.data : obj;
+    if (!inc || typeof inc !== 'object' || (!inc.picked && !inc.cards)) {
+      hint('导入失败：这不是本系统导出的进度文件');
+      return false;
+    }
+    applyRepoProgress(inc, label);
+    return true;
+  };
+
+  /* file:// 下浏览器禁止 fetch 读本地文件，只能让用户选一次 */
+  window.importProgress = function () {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.json,application/json';
+    inp.style.display = 'none';
+    inp.onchange = function () {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => window.importProgressJSON(String(fr.result), f.name);
+      fr.onerror = () => hint('读取文件失败：' + (f.name || ''));
+      fr.readAsText(f, 'utf-8');
+      document.body.removeChild(inp);
+    };
+    document.body.appendChild(inp);
+    inp.click();
+  };
+
+  /* 拖拽 json 到页面任意位置也能导入 */
+  function bindDropImport() {
+    ['dragenter', 'dragover'].forEach(t => window.addEventListener(t, e => {
+      if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) {
+        e.preventDefault(); document.body.classList.add('dropping');
+      }
+    }));
+    window.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+    window.addEventListener('drop', e => {
+      document.body.classList.remove('dropping');
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      e.preventDefault();
+      if (!/\.json$/i.test(f.name)) { hint('请拖入 progress.json'); return; }
+      const fr = new FileReader();
+      fr.onload = () => window.importProgressJSON(String(fr.result), f.name);
+      fr.readAsText(f, 'utf-8');
+    });
+  }
+
   function syncFromRepo(manual) {
-    if (!window.fetch) { repoState = { ok: false, q: 0, c: 0, msg: '浏览器不支持 fetch' }; return; }
+    if (!window.fetch || isFileProtocol()) {
+      repoState = { ok: false, q: 0, c: 0, msg: '本地打开（file://），浏览器禁止自动读取' };
+      if (manual) render();
+      return;
+    }
     fetch('data/progress.json', { cache: 'no-store' })
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(obj => {
         const inc = obj && obj.data ? obj.data : obj;
         if (!inc || typeof inc !== 'object') throw new Error('不是本系统的进度文件');
-        const repoQ = Object.keys(inc.picked || {}).length;
-        const repoC = Object.keys(inc.cards || {}).length;
-        repoState = { ok: true, q: repoQ, c: repoC, msg: '已读取' };
-        if (!repoQ && !repoC && !Object.keys(inc.wrong || {}).length) {
-          render(); hint('仓库里的 progress.json 还没有进度数据');
-          return;
-        }
-        const trustSrc = (inc.savedAt || 0) > (S.savedAt || 0);
-        const addQ = unionInto(S.picked, inc.picked, trustSrc);
-        const addC = unionInto(S.cards, inc.cards, false);
-        unionInto(S.days, inc.days, false);
-        const addW = unionInto(S.wrong, inc.wrong, false);
-        Object.keys(inc.paper || {}).forEach(id => {
-          const a = S.paper[id], b = inc.paper[id];
-          if (!a) { S.paper[id] = b; return; }
-          if (Object.keys(b.marks || {}).length > Object.keys(a.marks || {}).length) S.paper[id] = b;
-        });
-        Object.keys(inc.ztWrong || {}).forEach(k => {
-          S.ztWrong[k] = Math.max(S.ztWrong[k] || 0, inc.ztWrong[k] || 0);
-        });
-        const seen = new Set((S.mock || []).map(m => JSON.stringify(m)));
-        (inc.mock || []).forEach(m => {
-          const k = JSON.stringify(m);
-          if (!seen.has(k)) { seen.add(k); S.mock.push(m); }
-        });
-        if (!S.start) S.start = inc.start || S.start;
-        if (!S.examDate && inc.examDate) S.examDate = inc.examDate;
-        S.savedAt = Math.max(S.savedAt || 0, inc.savedAt || 0);
-        save(); render();
-        hint(addQ || addC || addW
-          ? `已从仓库合并：新增 ${addQ} 题 / ${addC} 张卡 / ${addW} 道错题`
-          : '本机进度已包含仓库里的全部内容，无需合并');
+        applyRepoProgress(inc, '');
       })
       .catch(e => {
-        const m = String(e && e.message || e);
+        const m = String((e && e.message) || e);
         repoState = {
           ok: false, q: 0, c: 0,
-          msg: /Failed|NetworkError|fetch|CORS/i.test(m) ? '读取失败：file:// 打开时浏览器禁止 fetch，请用 http 访问或看线上版' : m,
+          msg: /Failed|NetworkError|fetch|CORS/i.test(m) ? '读取失败：浏览器拦截了请求，可改用「导入进度」' : m,
         };
         if (manual) render();
       });
@@ -836,6 +909,7 @@
   };
 
   /* 错题本重做入口走 startQuiz(false) */
+  bindDropImport();
   render();
   syncFromRepo();
 })();

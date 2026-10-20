@@ -176,6 +176,15 @@ pre code{border:none;background:none;padding:0;color:#c7d1db}
 .pass{color:var(--accent)} .fail{color:var(--bad)}
 a{color:var(--accent2)}
 hr{border:none;border-top:1px solid var(--line);margin:18px 0}
+/* 拖入 progress.json 时的整屏提示 */
+body.dropping::after{
+  content:"松开鼠标，导入 progress.json";
+  position:fixed;inset:0;z-index:9999;pointer-events:none;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(15,18,22,.86);color:var(--accent);
+  font-size:20px;font-weight:600;letter-spacing:.5px;
+  border:3px dashed var(--accent);
+}
 @media(max-width:700px){
   main{padding:18px 14px 60px}
   .stats{width:100%;margin-left:0;font-size:12px}
