@@ -47,40 +47,17 @@
 1. **浏览器本地**（localStorage 的 `rk5.v1`）——你刷题时实时写，关掉页面还在
 2. **仓库里的 `data/progress.json`**——页面启动时读它，作为跨设备的进度来源
 
-### 一键上传（推荐）
+### 同步（就两条命令）
 
 ```powershell
-# 双击 sync-progress.bat 也行
-cd E:\MyProject\ruankao-programer
-powershell -ExecutionPolicy Bypass -File .\sync-progress.ps1
-```
-
-脚本会自动：
-
-1. 在**下载目录**找最新的 `progress*.json`（就是你刚点「导出进度」下载的那个）
-2. 校验它确实是本系统导出的（不是随便一个 json）
-3. 覆盖 `data/progress.json`
-4. `git commit` + `git push`
-5. 内容没变化时直接跳过，不会产生空提交
-
-也可以指定文件：
-
-```powershell
-.\sync-progress.ps1 -File "D:\some\progress.json"
-```
-
-**如果推送失败**，通常是另一台机器先推过了，执行 `git pull --rebase` 后再跑一次脚本。
-
-### 手动三步
-
-```powershell
-# 旧机器：点页面上的「导出进度」，浏览器会下载 progress.json
-# 用它覆盖仓库里的文件，然后提交
+# 先在网页点「导出进度」，用下载的 progress.json 覆盖项目里的同名文件，然后：
 cd E:\MyProject\ruankao-programer
 git add data/progress.json
 git commit -m "更新学习进度"
 git push
 ```
+
+`data/progress.json` 是普通被 git 跟踪的文件，不在 `.gitignore` 里，直接提交就行。
 
 新机器打开页面（或直接看 GitHub Pages），会自动载入这份进度。
 
@@ -124,9 +101,7 @@ ruankao-5day/
   run-server.ps1      可选：想用手机/局域网访问时启动本地服务器
   data/m01..m11.js    知识卡 + 题库（每行都是数据，改起来很直观）
   data/ex-*.js        知识卡例题（按 模块id#卡片序号 挂到卡片上，不动卡片原文）
-  data/progress.json  学习进度（导出的文件直接覆盖它，git 同步用）
-  sync-progress.bat   双击这个，一键上传进度到 GitHub
-  sync-progress.ps1   上面那个批处理的实现，也可单独调用
+  data/progress.json  学习进度（被 git 跟踪，直接 commit 即同步）
   tools/build-data.js 数据校验 + 打散答案位置（改完数据跑一次）
 ```
 
